@@ -1,13 +1,25 @@
-const { APDU_COMMANDS, CMD_GET_RESPONSE } = require("./apdu");
-const { decodeThai, formatDate, formatGender, splitFullName } = require("./utils");
+import { APDU_COMMANDS, CMD_GET_RESPONSE } from "./apdu";
+import { decodeThai, formatDate, formatGender, splitFullName } from "./utils";
+import pcsclite from "pcsclite";
+type CardReader = ReturnType<ReturnType<typeof pcsclite>['on']>;
+import type { Buffer } from "buffer";
 
-const readCardData = (reader, protocol) => {
-  const keys = Object.keys(APDU_COMMANDS);
+type Protocol = number;
+type Callback = () => void;
+
+type FullName = {
+  title: string;
+  firstname: string;
+  lastname: string;
+};
+
+const readCardData = (reader: CardReader, protocol: Protocol): void => {
+  const keys = Object.keys(APDU_COMMANDS) as (keyof typeof APDU_COMMANDS)[];
   let index = 0;
 
   function next() {
     if (index >= keys.length) {
-      reader.disconnect(reader.SCARD_LEAVE_CARD, (err) => {
+      reader.disconnect(reader.SCARD_LEAVE_CARD, (err: Error | null) => {
         if (err) console.error("❌ Disconnect Error:", err.message);
         else console.log("🔒 ยกเลิกการเชื่อมต่อสำเร็จ");
       });
@@ -27,9 +39,17 @@ const readCardData = (reader, protocol) => {
   next();
 };
 
-const handleResponse = async (reader, protocol, data, expectedLength, label, key, callback) => {
+const handleResponse = async (
+  reader: CardReader,
+  protocol: Protocol,
+  data: Buffer,
+  expectedLength: number,
+  label: string,
+  key: string,
+  callback?: Callback
+): Promise<void> => {
   try {
-    let value;
+    let value: string | FullName;
     if (data[data.length - 2] === 0x61) {
       const response = await transmitAsync(reader, CMD_GET_RESPONSE(data[data.length - 1]), protocol);
       value = decodeThai(response.slice(0, expectedLength));
@@ -41,12 +61,12 @@ const handleResponse = async (reader, protocol, data, expectedLength, label, key
     printFormattedData(label, key, value);
 
     if (callback) callback();
-  } catch (error) {
+  } catch (error: any) {
     console.error(`❌ เกิดข้อผิดพลาดในการอ่าน ${label}:`, error.message);
   }
 };
 
-const printFormattedData = (label, key, value) => {
+const printFormattedData = (label: string, key: string, value: any): void => {
   console.log(`${label}:`);
   if (["fullNameThai", "fullNameEng"].includes(key)) {
     console.log(`   🏷 Title: ${value.title || "-"}`);
@@ -57,9 +77,7 @@ const printFormattedData = (label, key, value) => {
   }
 };
 
-
-
-const transmitAsync = (reader, command, protocol) => {
+const transmitAsync = (reader: CardReader, command: Buffer, protocol: Protocol): Promise<Buffer> => {
   return new Promise((resolve, reject) => {
     reader.transmit(command, 255, protocol, (err, response) => {
       if (err) reject(err);
@@ -68,9 +86,7 @@ const transmitAsync = (reader, command, protocol) => {
   });
 };
 
-
-
-const formatData = (value, key) => {
+const formatData = (value: string, key: string): string | FullName => {
   if (key === "birthDate") {
     return value.trim() ? formatDate(value) : "-";
   }
@@ -89,9 +105,7 @@ const formatData = (value, key) => {
   return value;
 };
 
-
-
-const getLabel = (key) => ({
+const getLabel = (key: string): string => ({
   cid: "🆔 เลขบัตรประชาชน",
   fullNameThai: "👤 ชื่อ-นามสกุล (ไทย)",
   fullNameEng: "👤 ชื่อ-นามสกุล (อังกฤษ)",
@@ -103,6 +117,7 @@ const getLabel = (key) => ({
   religion: "🛐 ศาสนา",
 }[key] || key);
 
-const getExpectedLength = (key) => ({ cid: 13, fullNameThai: 100, birthDate: 8, gender: 1, issueDate: 8, expiryDate: 8 }[key] || 255);
+const getExpectedLength = (key: string): number =>
+  ({ cid: 13, fullNameThai: 100, birthDate: 8, gender: 1, issueDate: 8, expiryDate: 8 }[key] || 255);
 
-module.exports = { readCardData };
+export { readCardData };
